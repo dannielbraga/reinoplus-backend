@@ -25,12 +25,28 @@ func (m *mockCampaignRepo) Create(ctx context.Context, campaignEntity domain.Cam
 	return domain.Campaign{}, nil
 }
 
+func (m *mockCampaignRepo) Update(ctx context.Context, id string, campaignEntity domain.Campaign) (domain.Campaign, error) {
+	return domain.Campaign{}, nil
+}
+
+func (m *mockCampaignRepo) Delete(ctx context.Context, id string) error {
+	return nil
+}
+
+func (m *mockCampaignRepo) SetStatus(ctx context.Context, id string, status domain.CampaignStatus) (domain.Campaign, error) {
+	return domain.Campaign{}, nil
+}
+
+func (m *mockCampaignRepo) CountContributions(ctx context.Context, campaignID string) (int, error) {
+	return 0, nil
+}
+
 func (m *mockCampaignRepo) ListContributions(ctx context.Context, campaignID string) ([]domain.Contribution, error) {
 	return nil, nil
 }
 
-func (m *mockCampaignRepo) GetRaisedAmount(ctx context.Context, campaignID string) (float64, error) {
-	return 0, nil
+func (m *mockCampaignRepo) GetCampaignTotals(ctx context.Context, campaignID string) (float64, float64, error) {
+	return 0, 0, nil
 }
 
 type mockContributionWriter struct{}
@@ -47,7 +63,7 @@ func TestCreateContributionRejectsInactiveCampaign(t *testing.T) {
 	_, err := service.CreateContribution(context.Background(), campaign.CreateContributionInput{
 		CampaignID: "camp-1", ContributorName: "João", ContributorPhone: "11999999999",
 		Amount: 100, PaymentMethod: domain.PaymentMethodPix, ContributedAt: time.Now(),
-		CreatedByUserID: "user-1",
+		IsPaid: true, CreatedByUserID: "user-1",
 	})
 	if err != domain.ErrCampaignNotActive {
 		t.Fatalf("expected ErrCampaignNotActive, got %v", err)

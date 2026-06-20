@@ -5,7 +5,9 @@ import "time"
 type UserRole string
 
 const (
-	UserRoleAdmin  UserRole = "admin"
+	// UserRoleAdmin has full access to all write operations.
+	UserRoleAdmin UserRole = "admin"
+	// UserRoleMember is assigned on self-service registration (read-only + raffle sales).
 	UserRoleMember UserRole = "member"
 )
 

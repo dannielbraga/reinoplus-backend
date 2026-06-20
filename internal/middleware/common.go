@@ -30,7 +30,7 @@ func Recovery(logger *zap.Logger) func(http.Handler) http.Handler {
 			defer func() {
 				if rec := recover(); rec != nil {
 					logger.Error("panic recovered", zap.Any("panic", rec))
-					http.Error(w, `{"message":"internal server error"}`, http.StatusInternalServerError)
+					http.Error(w, `{"message":"erro interno do servidor","code":"internal_error"}`, http.StatusInternalServerError)
 				}
 			}()
 			next.ServeHTTP(w, r)

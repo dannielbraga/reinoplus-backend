@@ -18,9 +18,14 @@ func NewCampaignRepository(pool *pgxpool.Pool) *CampaignRepository {
 	return &CampaignRepository{pool: pool}
 }
 
+const campaignSelectColumns = `
+	id, name, description, goal_amount, start_date, end_date, status,
+	is_recurring, recurrence_interval, duration_months, created_at
+`
+
 func (r *CampaignRepository) List(ctx context.Context) ([]domain.Campaign, error) {
-	const query = `
-		SELECT id, name, description, goal_amount, start_date, end_date, status, created_at
+	query := `
+		SELECT ` + campaignSelectColumns + `
 		FROM campaigns
 		ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, created_at DESC
 	`
@@ -32,11 +37,8 @@ func (r *CampaignRepository) List(ctx context.Context) ([]domain.Campaign, error
 
 	campaigns := []domain.Campaign{}
 	for rows.Next() {
-		var campaign domain.Campaign
-		if err := rows.Scan(
-			&campaign.ID, &campaign.Name, &campaign.Description, &campaign.GoalAmount,
-			&campaign.StartDate, &campaign.EndDate, &campaign.Status, &campaign.CreatedAt,
-		); err != nil {
+		campaign, err := scanCampaign(rows.Scan)
+		if err != nil {
 			return nil, fmt.Errorf("scan campaign: %w", err)
 		}
 		campaigns = append(campaigns, campaign)
@@ -45,15 +47,9 @@ func (r *CampaignRepository) List(ctx context.Context) ([]domain.Campaign, error
 }
 
 func (r *CampaignRepository) GetByID(ctx context.Context, id string) (domain.Campaign, error) {
-	const query = `
-		SELECT id, name, description, goal_amount, start_date, end_date, status, created_at
-		FROM campaigns WHERE id = $1
-	`
-	var campaign domain.Campaign
-	err := r.pool.QueryRow(ctx, query, id).Scan(
-		&campaign.ID, &campaign.Name, &campaign.Description, &campaign.GoalAmount,
-		&campaign.StartDate, &campaign.EndDate, &campaign.Status, &campaign.CreatedAt,
-	)
+	query := `SELECT ` + campaignSelectColumns + ` FROM campaigns WHERE id = $1`
+	row := r.pool.QueryRow(ctx, query, id)
+	campaign, err := scanCampaign(row.Scan)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Campaign{}, domain.ErrNotFound
 	}
@@ -64,23 +60,78 @@ func (r *CampaignRepository) GetByID(ctx context.Context, id string) (domain.Cam
 }
 
 func (r *CampaignRepository) Create(ctx context.Context, campaign domain.Campaign) (domain.Campaign, error) {
-	const query = `
-		INSERT INTO campaigns (name, description, goal_amount, start_date, end_date, status)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING id, name, description, goal_amount, start_date, end_date, status, created_at
+	query := `
+		INSERT INTO campaigns (
+			name, description, goal_amount, start_date, end_date, status,
+			is_recurring, recurrence_interval, duration_months
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		RETURNING ` + campaignSelectColumns + `
 	`
-	var created domain.Campaign
-	err := r.pool.QueryRow(ctx, query,
+	row := r.pool.QueryRow(ctx, query,
 		campaign.Name, campaign.Description, campaign.GoalAmount,
 		campaign.StartDate, campaign.EndDate, campaign.Status,
-	).Scan(
-		&created.ID, &created.Name, &created.Description, &created.GoalAmount,
-		&created.StartDate, &created.EndDate, &created.Status, &created.CreatedAt,
+		campaign.IsRecurring, recurrenceIntervalToDB(campaign.RecurrenceInterval), campaign.DurationMonths,
 	)
+	created, err := scanCampaign(row.Scan)
 	if err != nil {
 		return domain.Campaign{}, fmt.Errorf("create campaign: %w", err)
 	}
 	return created, nil
+}
+
+func (r *CampaignRepository) Update(ctx context.Context, id string, campaign domain.Campaign) (domain.Campaign, error) {
+	query := `
+		UPDATE campaigns
+		SET name = $2, description = $3, goal_amount = $4, start_date = $5, end_date = $6,
+		    is_recurring = $7, recurrence_interval = $8, duration_months = $9
+		WHERE id = $1
+		RETURNING ` + campaignSelectColumns + `
+	`
+	row := r.pool.QueryRow(ctx, query, id,
+		campaign.Name, campaign.Description, campaign.GoalAmount,
+		campaign.StartDate, campaign.EndDate,
+		campaign.IsRecurring, recurrenceIntervalToDB(campaign.RecurrenceInterval), campaign.DurationMonths,
+	)
+	updated, err := scanCampaign(row.Scan)
+	if err != nil {
+		return domain.Campaign{}, fmt.Errorf("update campaign: %w", err)
+	}
+	return updated, nil
+}
+
+func (r *CampaignRepository) Delete(ctx context.Context, id string) error {
+	const query = `DELETE FROM campaigns WHERE id = $1`
+	tag, err := r.pool.Exec(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("delete campaign: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+func (r *CampaignRepository) SetStatus(ctx context.Context, id string, status domain.CampaignStatus) (domain.Campaign, error) {
+	query := `
+		UPDATE campaigns SET status = $2 WHERE id = $1
+		RETURNING ` + campaignSelectColumns + `
+	`
+	row := r.pool.QueryRow(ctx, query, id, status)
+	updated, err := scanCampaign(row.Scan)
+	if err != nil {
+		return domain.Campaign{}, fmt.Errorf("set campaign status: %w", err)
+	}
+	return updated, nil
+}
+
+func (r *CampaignRepository) CountContributions(ctx context.Context, campaignID string) (int, error) {
+	const query = `SELECT COUNT(*) FROM contributions WHERE campaign_id = $1`
+	var count int
+	if err := r.pool.QueryRow(ctx, query, campaignID).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count contributions: %w", err)
+	}
+	return count, nil
 }
 
 func (r *CampaignRepository) ListContributions(ctx context.Context, campaignID string) ([]domain.Contribution, error) {
@@ -88,13 +139,14 @@ func (r *CampaignRepository) ListContributions(ctx context.Context, campaignID s
 		SELECT c.id, c.campaign_id, c.member_id,
 		       COALESCE(m.name, c.contributor_name) AS display_name,
 		       c.contributor_name, c.contributor_phone,
-		       c.amount, c.payment_method, c.contributed_at, c.created_at,
-		       c.created_by_user_id, COALESCE(u.name, '') AS created_by_name
+		       c.amount, c.payment_method, c.contributed_at,
+		       c.is_recurring, c.recurrence_interval, c.is_paid, c.installment_number,
+		       c.created_at, c.created_by_user_id, COALESCE(u.name, '') AS created_by_name
 		FROM contributions c
 		LEFT JOIN members m ON m.id = c.member_id
 		LEFT JOIN users u ON u.id = c.created_by_user_id
 		WHERE c.campaign_id = $1
-		ORDER BY c.contributed_at DESC, c.created_at DESC
+		ORDER BY c.installment_number ASC NULLS LAST, c.contributed_at DESC, c.created_at DESC
 	`
 	rows, err := r.pool.Query(ctx, query, campaignID)
 	if err != nil {
@@ -104,13 +156,8 @@ func (r *CampaignRepository) ListContributions(ctx context.Context, campaignID s
 
 	contributions := []domain.Contribution{}
 	for rows.Next() {
-		var contribution domain.Contribution
-		if err := rows.Scan(
-			&contribution.ID, &contribution.CampaignID, &contribution.MemberID,
-			&contribution.MemberName, &contribution.ContributorName, &contribution.ContributorPhone,
-			&contribution.Amount, &contribution.PaymentMethod, &contribution.ContributedAt, &contribution.CreatedAt,
-			&contribution.CreatedByUserID, &contribution.CreatedByName,
-		); err != nil {
+		contribution, err := scanContribution(rows.Scan)
+		if err != nil {
 			return nil, fmt.Errorf("scan contribution: %w", err)
 		}
 		contributions = append(contributions, contribution)
@@ -118,13 +165,19 @@ func (r *CampaignRepository) ListContributions(ctx context.Context, campaignID s
 	return contributions, rows.Err()
 }
 
-func (r *CampaignRepository) GetRaisedAmount(ctx context.Context, campaignID string) (float64, error) {
-	const query = `SELECT COALESCE(SUM(amount), 0) FROM contributions WHERE campaign_id = $1`
-	var raised float64
-	if err := r.pool.QueryRow(ctx, query, campaignID).Scan(&raised); err != nil {
-		return 0, fmt.Errorf("sum contributions: %w", err)
+func (r *CampaignRepository) GetCampaignTotals(ctx context.Context, campaignID string) (float64, float64, error) {
+	const query = `
+		SELECT
+			COALESCE(SUM(amount) FILTER (WHERE is_paid = true), 0),
+			COALESCE(SUM(amount) FILTER (WHERE is_paid = false), 0)
+		FROM contributions
+		WHERE campaign_id = $1
+	`
+	var paid, promised float64
+	if err := r.pool.QueryRow(ctx, query, campaignID).Scan(&paid, &promised); err != nil {
+		return 0, 0, fmt.Errorf("sum contribution totals: %w", err)
 	}
-	return raised, nil
+	return paid, promised, nil
 }
 
 func (r *CampaignRepository) CreateContribution(ctx context.Context, contribution domain.Contribution) (domain.Contribution, error) {
@@ -135,22 +188,26 @@ func (r *CampaignRepository) CreateContribution(ctx context.Context, contributio
 	defer tx.Rollback(ctx)
 
 	const insertQuery = `
-		INSERT INTO contributions (campaign_id, member_id, contributor_name, contributor_phone, amount, payment_method, contributed_at, created_by_user_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING id, campaign_id, member_id, contributor_name, contributor_phone, amount, payment_method, contributed_at, created_at, created_by_user_id
+		INSERT INTO contributions (
+			campaign_id, member_id, contributor_name, contributor_phone,
+			amount, payment_method, contributed_at,
+			is_recurring, recurrence_interval, is_paid, installment_number, created_by_user_id
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		RETURNING id, campaign_id, member_id, contributor_name, contributor_phone,
+		          amount, payment_method, contributed_at,
+		          is_recurring, recurrence_interval, is_paid, installment_number,
+		          created_at, created_by_user_id
 	`
 
-	var created domain.Contribution
-	err = tx.QueryRow(ctx, insertQuery,
+	row := tx.QueryRow(ctx, insertQuery,
 		contribution.CampaignID, contribution.MemberID, contribution.ContributorName,
 		contribution.ContributorPhone, contribution.Amount,
-		contribution.PaymentMethod, contribution.ContributedAt, contribution.CreatedByUserID,
-	).Scan(
-		&created.ID, &created.CampaignID, &created.MemberID,
-		&created.ContributorName, &created.ContributorPhone,
-		&created.Amount, &created.PaymentMethod, &created.ContributedAt, &created.CreatedAt,
-		&created.CreatedByUserID,
+		contribution.PaymentMethod, contribution.ContributedAt,
+		false, nil, contribution.IsPaid,
+		contribution.InstallmentNumber, contribution.CreatedByUserID,
 	)
+	created, err := scanCreatedContribution(row.Scan)
 	if err != nil {
 		return domain.Contribution{}, fmt.Errorf("insert contribution: %w", err)
 	}
@@ -173,4 +230,72 @@ func (r *CampaignRepository) CreateContribution(ctx context.Context, contributio
 	}
 
 	return created, nil
+}
+
+type scanFunc func(dest ...any) error
+
+func scanCampaign(scan scanFunc) (domain.Campaign, error) {
+	var campaign domain.Campaign
+	var recurrenceInterval *string
+	err := scan(
+		&campaign.ID, &campaign.Name, &campaign.Description, &campaign.GoalAmount,
+		&campaign.StartDate, &campaign.EndDate, &campaign.Status,
+		&campaign.IsRecurring, &recurrenceInterval, &campaign.DurationMonths, &campaign.CreatedAt,
+	)
+	if err != nil {
+		return domain.Campaign{}, err
+	}
+	campaign.RecurrenceInterval = scanRecurrenceInterval(recurrenceInterval)
+	return campaign, nil
+}
+
+func scanCreatedContribution(scan scanFunc) (domain.Contribution, error) {
+	var contribution domain.Contribution
+	var recurrenceInterval *string
+	err := scan(
+		&contribution.ID, &contribution.CampaignID, &contribution.MemberID,
+		&contribution.ContributorName, &contribution.ContributorPhone,
+		&contribution.Amount, &contribution.PaymentMethod, &contribution.ContributedAt,
+		&contribution.IsRecurring, &recurrenceInterval, &contribution.IsPaid, &contribution.InstallmentNumber,
+		&contribution.CreatedAt, &contribution.CreatedByUserID,
+	)
+	if err != nil {
+		return domain.Contribution{}, err
+	}
+	contribution.RecurrenceInterval = scanRecurrenceInterval(recurrenceInterval)
+	contribution.MemberName = contribution.ContributorName
+	return contribution, nil
+}
+
+func scanContribution(scan scanFunc) (domain.Contribution, error) {
+	var contribution domain.Contribution
+	var recurrenceInterval *string
+	err := scan(
+		&contribution.ID, &contribution.CampaignID, &contribution.MemberID,
+		&contribution.MemberName, &contribution.ContributorName, &contribution.ContributorPhone,
+		&contribution.Amount, &contribution.PaymentMethod, &contribution.ContributedAt,
+		&contribution.IsRecurring, &recurrenceInterval, &contribution.IsPaid, &contribution.InstallmentNumber,
+		&contribution.CreatedAt, &contribution.CreatedByUserID, &contribution.CreatedByName,
+	)
+	if err != nil {
+		return domain.Contribution{}, err
+	}
+	contribution.RecurrenceInterval = scanRecurrenceInterval(recurrenceInterval)
+	return contribution, nil
+}
+
+func recurrenceIntervalToDB(value *domain.RecurrenceInterval) *string {
+	if value == nil {
+		return nil
+	}
+	formatted := string(*value)
+	return &formatted
+}
+
+func scanRecurrenceInterval(value *string) *domain.RecurrenceInterval {
+	if value == nil || *value == "" {
+		return nil
+	}
+	interval := domain.RecurrenceInterval(*value)
+	return &interval
 }

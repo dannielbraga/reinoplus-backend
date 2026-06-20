@@ -12,8 +12,12 @@ type Repository interface {
 	List(ctx context.Context) ([]domain.Campaign, error)
 	GetByID(ctx context.Context, id string) (domain.Campaign, error)
 	Create(ctx context.Context, campaign domain.Campaign) (domain.Campaign, error)
+	Update(ctx context.Context, id string, campaign domain.Campaign) (domain.Campaign, error)
+	Delete(ctx context.Context, id string) error
+	SetStatus(ctx context.Context, id string, status domain.CampaignStatus) (domain.Campaign, error)
+	CountContributions(ctx context.Context, campaignID string) (int, error)
 	ListContributions(ctx context.Context, campaignID string) ([]domain.Contribution, error)
-	GetRaisedAmount(ctx context.Context, campaignID string) (float64, error)
+	GetCampaignTotals(ctx context.Context, campaignID string) (paid float64, promised float64, err error)
 }
 
 type ContributionWriter interface {
@@ -35,26 +39,34 @@ func NewService(repo Repository, writer ContributionWriter, memberLookup MemberL
 }
 
 type CreateInput struct {
-	Name        string
-	Description string
-	GoalAmount  float64
-	StartDate   time.Time
-	EndDate     time.Time
+	Name               string
+	Description        string
+	GoalAmount         float64
+	StartDate          time.Time
+	EndDate            time.Time
+	IsRecurring        bool
+	RecurrenceInterval *domain.RecurrenceInterval
+	DurationMonths     *int
 }
 
+type UpdateInput = CreateInput
+
 type CreateContributionInput struct {
-	CampaignID       string
-	ContributorName  string
-	ContributorPhone string
-	Amount           float64
-	PaymentMethod    domain.PaymentMethod
-	ContributedAt    time.Time
-	CreatedByUserID  string
+	CampaignID        string
+	ContributorName   string
+	ContributorPhone  string
+	Amount            float64
+	PaymentMethod     domain.PaymentMethod
+	ContributedAt     time.Time
+	IsPaid            bool
+	InstallmentNumber *int
+	CreatedByUserID   string
 }
 
 type CampaignDetail struct {
 	Campaign domain.Campaign
 	Raised   float64
+	Promised float64
 }
 
 func (s *Service) List(ctx context.Context) ([]domain.Campaign, error) {
@@ -67,12 +79,12 @@ func (s *Service) GetByID(ctx context.Context, id string) (CampaignDetail, error
 		return CampaignDetail{}, err
 	}
 
-	raised, err := s.repo.GetRaisedAmount(ctx, id)
+	paid, promised, err := s.repo.GetCampaignTotals(ctx, id)
 	if err != nil {
 		return CampaignDetail{}, err
 	}
 
-	return CampaignDetail{Campaign: campaign, Raised: raised}, nil
+	return CampaignDetail{Campaign: campaign, Raised: paid, Promised: promised}, nil
 }
 
 func (s *Service) ListContributions(ctx context.Context, campaignID string) ([]domain.Contribution, error) {
@@ -82,25 +94,113 @@ func (s *Service) ListContributions(ctx context.Context, campaignID string) ([]d
 	return s.repo.ListContributions(ctx, campaignID)
 }
 
-func (s *Service) Create(ctx context.Context, input CreateInput) (domain.Campaign, error) {
+func (s *Service) Update(ctx context.Context, id string, input UpdateInput) (domain.Campaign, error) {
+	if id == "" {
+		return domain.Campaign{}, domain.ErrValidation
+	}
+
+	existing, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return domain.Campaign{}, err
+	}
+	if existing.Status == domain.CampaignStatusCompleted {
+		return domain.Campaign{}, domain.ErrValidation
+	}
+
+	campaign, err := buildCampaignFromInput(input)
+	if err != nil {
+		return domain.Campaign{}, err
+	}
+	campaign.Status = existing.Status
+	campaign.CreatedAt = existing.CreatedAt
+
+	return s.repo.Update(ctx, id, campaign)
+}
+
+func (s *Service) Delete(ctx context.Context, id string) error {
+	if id == "" {
+		return domain.ErrValidation
+	}
+
+	count, err := s.repo.CountContributions(ctx, id)
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return domain.ErrCampaignHasContributions
+	}
+
+	return s.repo.Delete(ctx, id)
+}
+
+func (s *Service) SetStatus(ctx context.Context, id string, active bool) (domain.Campaign, error) {
+	if id == "" {
+		return domain.Campaign{}, domain.ErrValidation
+	}
+
+	existing, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return domain.Campaign{}, err
+	}
+	if existing.Status == domain.CampaignStatusCompleted {
+		return domain.Campaign{}, domain.ErrValidation
+	}
+
+	status := domain.CampaignStatusCancelled
+	if active {
+		status = domain.CampaignStatusActive
+	}
+
+	return s.repo.SetStatus(ctx, id, status)
+}
+
+func buildCampaignFromInput(input CreateInput) (domain.Campaign, error) {
 	if strings.TrimSpace(input.Name) == "" || strings.TrimSpace(input.Description) == "" {
 		return domain.Campaign{}, domain.ErrValidation
 	}
 	if input.GoalAmount <= 0 {
 		return domain.Campaign{}, domain.ErrValidation
 	}
-	if input.EndDate.Before(input.StartDate) {
+	if input.StartDate.IsZero() {
 		return domain.Campaign{}, domain.ErrValidation
 	}
 
-	campaign := domain.Campaign{
-		Name:        strings.TrimSpace(input.Name),
-		Description: strings.TrimSpace(input.Description),
-		GoalAmount:  input.GoalAmount,
-		StartDate:   input.StartDate,
-		EndDate:     input.EndDate,
-		Status:      domain.CampaignStatusActive,
+	endDate := input.EndDate
+	var recurrenceInterval *domain.RecurrenceInterval
+	var durationMonths *int
+
+	if input.IsRecurring {
+		if input.DurationMonths == nil || *input.DurationMonths <= 0 {
+			return domain.Campaign{}, domain.ErrValidation
+		}
+		if input.RecurrenceInterval == nil || !domain.IsValidRecurrenceInterval(*input.RecurrenceInterval) {
+			return domain.Campaign{}, domain.ErrValidation
+		}
+		endDate = input.StartDate.AddDate(0, *input.DurationMonths, 0)
+		recurrenceInterval = input.RecurrenceInterval
+		durationMonths = input.DurationMonths
+	} else if endDate.IsZero() || endDate.Before(input.StartDate) {
+		return domain.Campaign{}, domain.ErrValidation
 	}
+
+	return domain.Campaign{
+		Name:               strings.TrimSpace(input.Name),
+		Description:        strings.TrimSpace(input.Description),
+		GoalAmount:         input.GoalAmount,
+		StartDate:          input.StartDate,
+		EndDate:            endDate,
+		IsRecurring:        input.IsRecurring,
+		RecurrenceInterval: recurrenceInterval,
+		DurationMonths:     durationMonths,
+	}, nil
+}
+
+func (s *Service) Create(ctx context.Context, input CreateInput) (domain.Campaign, error) {
+	campaign, err := buildCampaignFromInput(input)
+	if err != nil {
+		return domain.Campaign{}, err
+	}
+	campaign.Status = domain.CampaignStatusActive
 
 	return s.repo.Create(ctx, campaign)
 }
@@ -136,14 +236,31 @@ func (s *Service) CreateContribution(ctx context.Context, input CreateContributi
 		return domain.Contribution{}, domain.ErrCampaignNotActive
 	}
 
+	if campaign.IsRecurring {
+		if input.InstallmentNumber == nil || *input.InstallmentNumber <= 0 {
+			return domain.Contribution{}, domain.ErrValidation
+		}
+		if campaign.RecurrenceInterval == nil || campaign.DurationMonths == nil {
+			return domain.Contribution{}, domain.ErrValidation
+		}
+		totalInstallments := domain.TotalInstallments(*campaign.DurationMonths, *campaign.RecurrenceInterval)
+		if *input.InstallmentNumber > totalInstallments {
+			return domain.Contribution{}, domain.ErrValidation
+		}
+	} else if input.InstallmentNumber != nil {
+		return domain.Contribution{}, domain.ErrValidation
+	}
+
 	contribution := domain.Contribution{
-		CampaignID:       input.CampaignID,
-		ContributorName:  name,
-		ContributorPhone: phone,
-		Amount:           input.Amount,
-		PaymentMethod:    input.PaymentMethod,
-		ContributedAt:    input.ContributedAt,
-		CreatedByUserID:  &input.CreatedByUserID,
+		CampaignID:        input.CampaignID,
+		ContributorName:   name,
+		ContributorPhone:  phone,
+		Amount:            input.Amount,
+		PaymentMethod:     input.PaymentMethod,
+		ContributedAt:     input.ContributedAt,
+		IsPaid:            input.IsPaid,
+		InstallmentNumber: input.InstallmentNumber,
+		CreatedByUserID:   &input.CreatedByUserID,
 	}
 
 	if s.memberLookup != nil {
