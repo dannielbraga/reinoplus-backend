@@ -1,0 +1,64 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: reinoplus-postgres
+    environment:
+      POSTGRES_USER: reinoplus
+      POSTGRES_PASSWORD: reinoplus
+      POSTGRES_DB: reinoplus
+    ports:
+      - "5433:5432"
+    volumes:
+      - reinoplus_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reinoplus -d reinoplus"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrate
+    container_name: reinoplus-migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      - -dir
+      - /migrations
+      - postgres
+      - postgres://reinoplus:reinoplus@postgres:5432/reinoplus?sslmode=disable
+      - up
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: reinoplus-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "8080:8080"
+    environment:
+      SERVER_PORT: "8080"
+      DATABASE_URL: postgres://reinoplus:reinoplus@postgres:5432/reinoplus?sslmode=disable
+      JWT_PRIVATE_KEY_PATH: /app/keys/private.pem
+      JWT_PUBLIC_KEY_PATH: /app/keys/public.pem
+      JWT_ACCESS_TTL: 15m
+      JWT_REFRESH_TTL: 168h
+      CORS_ALLOWED_ORIGINS: "*"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  reinoplus_pg_data:

@@ -1,0 +1,10 @@
+.git
+.gitignore
+.env
+keys/
+*.pem
+README.md
+Makefile
+docker-compose.yml
+Dockerfile*
+scripts/hashpassword
