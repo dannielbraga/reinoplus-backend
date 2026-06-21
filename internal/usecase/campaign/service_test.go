@@ -41,7 +41,7 @@ func (m *mockCampaignRepo) CountContributions(ctx context.Context, campaignID st
 	return 0, nil
 }
 
-func (m *mockCampaignRepo) ListContributions(ctx context.Context, campaignID string) ([]domain.Contribution, error) {
+func (m *mockCampaignRepo) ListContributions(ctx context.Context, campaignID string, search string) ([]domain.Contribution, error) {
 	return nil, nil
 }
 

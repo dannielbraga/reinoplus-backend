@@ -114,6 +114,49 @@ migrations/              # goose
 go test ./...
 ```
 
+## Deploy no Railway
+
+1. Crie um projeto no [Railway](https://railway.app) e conecte este repositório.
+2. Adicione um serviço **PostgreSQL** e vincule `DATABASE_URL` ao serviço da API.
+3. O `railway.toml` e o `Dockerfile` já configuram:
+   - migrations automáticas (`goose up`) a cada deploy
+   - health check em `/health`
+   - porta via variável `PORT` (padrão Railway)
+4. Gere um domínio público em **Settings → Networking → Generate Domain**.
+5. Teste:
+
+```bash
+curl https://SUA-URL.up.railway.app/health
+curl -X POST https://SUA-URL.up.railway.app/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@reinoplus.local","password":"admin123"}'
+```
+
+### Variáveis no Railway (serviço API)
+
+| Variável | Obrigatória | Observação |
+|----------|-------------|------------|
+| `DATABASE_URL` | Sim | Referência ao Postgres |
+| `PORT` | Auto | Injetada pelo Railway |
+| `CORS_ALLOWED_ORIGINS` | Não | Padrão `*` |
+| `JWT_PRIVATE_KEY` | Recomendado | PEM completo; evita novas chaves a cada deploy |
+| `JWT_PUBLIC_KEY` | Recomendado | PEM completo |
+
+Sem `JWT_*` em variáveis, o container gera chaves na subida (funciona, mas invalida tokens após redeploy).
+
+Para gerar chaves estáveis localmente:
+
+```bash
+bash scripts/generate-keys.sh
+# Copie o conteúdo de keys/private.pem e keys/public.pem para as variáveis no Railway
+```
+
+No frontend (EAS Build), use:
+
+```env
+EXPO_PUBLIC_API_URL=https://SUA-URL.up.railway.app/api
+```
+
 ## Regras implementadas
 
 - Regra de negócio no usecase; handler só valida/parsing

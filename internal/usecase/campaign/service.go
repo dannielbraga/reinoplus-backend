@@ -16,7 +16,7 @@ type Repository interface {
 	Delete(ctx context.Context, id string) error
 	SetStatus(ctx context.Context, id string, status domain.CampaignStatus) (domain.Campaign, error)
 	CountContributions(ctx context.Context, campaignID string) (int, error)
-	ListContributions(ctx context.Context, campaignID string) ([]domain.Contribution, error)
+	ListContributions(ctx context.Context, campaignID string, search string) ([]domain.Contribution, error)
 	GetCampaignTotals(ctx context.Context, campaignID string) (paid float64, promised float64, err error)
 }
 
@@ -87,11 +87,11 @@ func (s *Service) GetByID(ctx context.Context, id string) (CampaignDetail, error
 	return CampaignDetail{Campaign: campaign, Raised: paid, Promised: promised}, nil
 }
 
-func (s *Service) ListContributions(ctx context.Context, campaignID string) ([]domain.Contribution, error) {
+func (s *Service) ListContributions(ctx context.Context, campaignID string, search string) ([]domain.Contribution, error) {
 	if campaignID == "" {
 		return nil, domain.ErrValidation
 	}
-	return s.repo.ListContributions(ctx, campaignID)
+	return s.repo.ListContributions(ctx, campaignID, strings.TrimSpace(search))
 }
 
 func (s *Service) Update(ctx context.Context, id string, input UpdateInput) (domain.Campaign, error) {

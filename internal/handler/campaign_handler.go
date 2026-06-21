@@ -133,7 +133,7 @@ func (h *CampaignHandler) ListContributions(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	contributions, err := h.service.ListContributions(r.Context(), campaignID)
+	contributions, err := h.service.ListContributions(r.Context(), campaignID, r.URL.Query().Get("search"))
 	if err != nil {
 		httputil.WriteError(w, h.logger, err)
 		return

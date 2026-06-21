@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -134,8 +135,8 @@ func (r *CampaignRepository) CountContributions(ctx context.Context, campaignID 
 	return count, nil
 }
 
-func (r *CampaignRepository) ListContributions(ctx context.Context, campaignID string) ([]domain.Contribution, error) {
-	const query = `
+func (r *CampaignRepository) ListContributions(ctx context.Context, campaignID string, search string) ([]domain.Contribution, error) {
+	query := `
 		SELECT c.id, c.campaign_id, c.member_id,
 		       COALESCE(m.name, c.contributor_name) AS display_name,
 		       c.contributor_name, c.contributor_phone,
@@ -146,9 +147,31 @@ func (r *CampaignRepository) ListContributions(ctx context.Context, campaignID s
 		LEFT JOIN members m ON m.id = c.member_id
 		LEFT JOIN users u ON u.id = c.created_by_user_id
 		WHERE c.campaign_id = $1
+	`
+	args := []any{campaignID}
+	if search != "" {
+		digits := normalizePhoneDigits(search)
+		query += `
+			AND (
+				c.contributor_name ILIKE $2
+				OR COALESCE(m.name, '') ILIKE $2
+				OR c.contributor_phone ILIKE $2
+		`
+		args = append(args, "%"+search+"%")
+		if digits != "" {
+			query += `
+				OR c.contributor_phone LIKE $3
+			`
+			args = append(args, "%"+digits+"%")
+		}
+		query += `
+			)
+		`
+	}
+	query += `
 		ORDER BY c.installment_number ASC NULLS LAST, c.contributed_at DESC, c.created_at DESC
 	`
-	rows, err := r.pool.Query(ctx, query, campaignID)
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list contributions: %w", err)
 	}
@@ -298,4 +321,14 @@ func scanRecurrenceInterval(value *string) *domain.RecurrenceInterval {
 	}
 	interval := domain.RecurrenceInterval(*value)
 	return &interval
+}
+
+func normalizePhoneDigits(phone string) string {
+	var digits strings.Builder
+	for _, r := range phone {
+		if r >= '0' && r <= '9' {
+			digits.WriteRune(r)
+		}
+	}
+	return digits.String()
 }
