@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -47,7 +48,7 @@ func Load() (Config, error) {
 			WriteTimeout: getDurationEnv("SERVER_WRITE_TIMEOUT", 15*time.Second),
 		},
 		Database: DatabaseConfig{
-			URL: getEnv("DATABASE_URL", "postgres://reinoplus:reinoplus@localhost:5432/reinoplus?sslmode=disable"),
+			URL: normalizeDatabaseURL(getEnv("DATABASE_URL", "postgres://reinoplus:reinoplus@localhost:5432/reinoplus?sslmode=disable")),
 		},
 		JWT: JWTConfig{
 			PrivateKeyPath: getEnv("JWT_PRIVATE_KEY_PATH", "./keys/private.pem"),
@@ -65,6 +66,23 @@ func Load() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func normalizeDatabaseURL(raw string) string {
+	if raw == "" || strings.Contains(raw, "sslmode=") {
+		return raw
+	}
+
+	if strings.Contains(raw, "localhost") || strings.Contains(raw, "127.0.0.1") ||
+		strings.Contains(raw, "@postgres:") || strings.Contains(raw, "railway.internal") {
+		return raw
+	}
+
+	separator := "?"
+	if strings.Contains(raw, "?") {
+		separator = "&"
+	}
+	return raw + separator + "sslmode=require"
 }
 
 func getEnv(key, fallback string) string {

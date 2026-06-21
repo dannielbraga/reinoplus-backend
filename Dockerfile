@@ -22,7 +22,6 @@ COPY scripts/docker-entrypoint.sh /app/docker-entrypoint.sh
 
 RUN chmod +x /app/docker-entrypoint.sh
 
-ENV SERVER_PORT=8080
 ENV JWT_PRIVATE_KEY_PATH=/app/keys/private.pem
 ENV JWT_PUBLIC_KEY_PATH=/app/keys/public.pem
 ENV JWT_ACCESS_TTL=15m
@@ -31,7 +30,7 @@ ENV CORS_ALLOWED_ORIGINS=*
 
 EXPOSE 8080
 
-HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=5 \
+HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=6 \
   CMD wget -qO- "http://127.0.0.1:${PORT:-8080}/health" || exit 1
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
