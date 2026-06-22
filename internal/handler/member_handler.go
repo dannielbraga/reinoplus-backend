@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/reinoplus/reinoplus/internal/domain"
 	"github.com/reinoplus/reinoplus/internal/httputil"
+	"github.com/reinoplus/reinoplus/internal/textutil"
 	"github.com/reinoplus/reinoplus/internal/usecase/member"
 	"go.uber.org/zap"
 )
@@ -144,7 +145,7 @@ func (h *MemberHandler) Update(w http.ResponseWriter, r *http.Request) {
 func toMemberResponse(item domain.Member) memberResponse {
 	return memberResponse{
 		ID:        item.ID,
-		Name:      item.Name,
+		Name:      textutil.TitleCaseName(item.Name),
 		Phone:     item.Phone,
 		BirthDate: item.BirthDate.Format("2006-01-02"),
 		Address:   item.Address,

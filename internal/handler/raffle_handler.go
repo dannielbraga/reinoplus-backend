@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/reinoplus/reinoplus/internal/domain"
 	"github.com/reinoplus/reinoplus/internal/middleware"
+	"github.com/reinoplus/reinoplus/internal/textutil"
 	"github.com/reinoplus/reinoplus/internal/usecase/raffle"
 	"go.uber.org/zap"
 )
@@ -277,14 +278,14 @@ func toRaffleResponse(item domain.RaffleSummary) raffleResponse {
 		ID: item.ID, Name: item.Name, Goal: item.GoalAmount, TicketPrice: item.PointValue,
 		TotalNumbers: item.TotalNumbers, SoldNumbers: item.SoldNumbers,
 		DrawDate: item.DrawDate.Format("2006-01-02"), Prizes: prizes,
-		Status: string(item.Status), WinningNumber: item.WinningNumber, WinnerName: item.WinnerName,
+		Status: string(item.Status), WinningNumber: item.WinningNumber, WinnerName: textutil.TitleCaseNamePtr(item.WinnerName),
 	}
 }
 
 func toRaffleTicketResponse(item domain.RaffleNumber) raffleTicketResponse {
 	resp := raffleTicketResponse{
 		Number: item.Number, Status: string(item.Status),
-		BuyerName: item.BuyerName, BuyerPhone: item.BuyerPhone, MemberID: item.MemberID,
+		BuyerName: textutil.TitleCaseNamePtr(item.BuyerName), BuyerPhone: item.BuyerPhone, MemberID: item.MemberID,
 	}
 	if item.PaymentMethod != nil {
 		method := string(*item.PaymentMethod)
@@ -295,7 +296,7 @@ func toRaffleTicketResponse(item domain.RaffleNumber) raffleTicketResponse {
 		resp.SoldAt = &soldAt
 	}
 	if item.SoldByName != nil {
-		resp.SoldByName = item.SoldByName
+		resp.SoldByName = textutil.TitleCaseNamePtr(item.SoldByName)
 	}
 	return resp
 }

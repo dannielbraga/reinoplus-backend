@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/reinoplus/reinoplus/internal/domain"
+	"github.com/reinoplus/reinoplus/internal/textutil"
 )
 
 type Repository interface {
@@ -67,7 +68,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (domain.Member,
 	}
 
 	member := domain.Member{
-		Name:      strings.TrimSpace(input.Name),
+		Name:      textutil.TitleCaseName(input.Name),
 		Phone:     normalizePhone(input.Phone),
 		BirthDate: input.BirthDate,
 		Address:   strings.TrimSpace(input.Address),
@@ -86,7 +87,7 @@ func (s *Service) Update(ctx context.Context, input UpdateInput) (domain.Member,
 
 	member := domain.Member{
 		ID:        input.ID,
-		Name:      strings.TrimSpace(input.Name),
+		Name:      textutil.TitleCaseName(input.Name),
 		Phone:     normalizePhone(input.Phone),
 		BirthDate: input.BirthDate,
 		Address:   strings.TrimSpace(input.Address),

@@ -117,8 +117,16 @@ go test ./...
 ## Deploy no Railway
 
 1. Crie um projeto no [Railway](https://railway.app) e conecte este repositório.
-2. Adicione um serviço **PostgreSQL** e vincule `DATABASE_URL` ao serviço da API.
-3. O `railway.toml` e o `Dockerfile` já configuram:
+2. Adicione um serviço **PostgreSQL** no mesmo projeto.
+3. **Vincule o banco à API** (obrigatório — sem isso o deploy falha):
+   - Abra o serviço da **API** (não o Postgres)
+   - Vá em **Variables**
+   - Clique em **+ New Variable** → **Add Reference** (ou **Reference Variable**)
+   - Selecione o serviço **Postgres**
+   - Escolha a variável **`DATABASE_URL`**
+   - Salve — a API passará a receber `DATABASE_URL` automaticamente
+4. Alternativa manual: copie `DATABASE_URL` do serviço Postgres (aba Variables) e cole como variável no serviço da API.
+5. O `railway.toml` e o `Dockerfile` já configuram:
    - migrations automáticas (`goose up`) a cada deploy
    - health check em `/health`
    - porta via variável `PORT` (padrão Railway)

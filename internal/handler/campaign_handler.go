@@ -8,6 +8,7 @@ import (
 	"github.com/reinoplus/reinoplus/internal/domain"
 	"github.com/reinoplus/reinoplus/internal/httputil"
 	"github.com/reinoplus/reinoplus/internal/middleware"
+	"github.com/reinoplus/reinoplus/internal/textutil"
 	"github.com/reinoplus/reinoplus/internal/usecase/campaign"
 	"go.uber.org/zap"
 )
@@ -328,14 +329,14 @@ func toCampaignResponse(item domain.Campaign, raised float64, promised float64) 
 func toContributionResponse(item domain.Contribution, totalInstallments *int) contributionResponse {
 	return contributionResponse{
 		ID: item.ID, CampaignID: item.CampaignID, MemberID: item.MemberID,
-		ContributorName: item.ContributorName, ContributorPhone: item.ContributorPhone,
-		MemberName: item.MemberName, Amount: item.Amount,
+		ContributorName: textutil.TitleCaseName(item.ContributorName), ContributorPhone: item.ContributorPhone,
+		MemberName: textutil.TitleCaseName(item.MemberName), Amount: item.Amount,
 		PaymentMethod: string(item.PaymentMethod),
 		ContributedAt: item.ContributedAt.Format("2006-01-02"),
 		IsPaid: item.IsPaid,
 		InstallmentNumber: item.InstallmentNumber,
 		TotalInstallments: totalInstallments,
-		CreatedByName: item.CreatedByName,
+		CreatedByName: textutil.TitleCaseName(item.CreatedByName),
 	}
 }
 

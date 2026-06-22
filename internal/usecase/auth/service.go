@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/reinoplus/reinoplus/internal/domain"
+	"github.com/reinoplus/reinoplus/internal/textutil"
 )
 
 type UserRepository interface {
@@ -97,7 +98,7 @@ func (s *Service) Register(ctx context.Context, input RegisterInput, hashPasswor
 	}
 
 	user, _, err := s.register.RegisterUserWithMember(ctx, domain.RegisterUserInput{
-		Name:         strings.TrimSpace(input.Name),
+		Name:         textutil.TitleCaseName(input.Name),
 		Email:        strings.TrimSpace(strings.ToLower(input.Email)),
 		PasswordHash: passwordHash,
 		Phone:        normalizePhone(input.Phone),
@@ -161,7 +162,7 @@ func (s *Service) UpdateProfile(ctx context.Context, input UpdateProfileInput, h
 		}
 	}
 
-	user.Name = strings.TrimSpace(input.Name)
+	user.Name = textutil.TitleCaseName(input.Name)
 	user.Email = strings.TrimSpace(strings.ToLower(input.Email))
 	member.Name = user.Name
 	member.Phone = normalizePhone(input.Phone)

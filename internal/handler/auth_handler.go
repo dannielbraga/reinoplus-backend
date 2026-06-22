@@ -8,6 +8,7 @@ import (
 	"github.com/reinoplus/reinoplus/internal/domain"
 	"github.com/reinoplus/reinoplus/internal/httputil"
 	"github.com/reinoplus/reinoplus/internal/middleware"
+	"github.com/reinoplus/reinoplus/internal/textutil"
 	authuc "github.com/reinoplus/reinoplus/internal/usecase/auth"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
@@ -231,7 +232,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, _ *http.Request) {
 func toAuthUser(user domain.User) authUserResponse {
 	return authUserResponse{
 		ID:       user.ID,
-		Name:     user.Name,
+		Name:     textutil.TitleCaseName(user.Name),
 		Email:    user.Email,
 		Role:     string(user.Role),
 		MemberID: user.MemberID,
